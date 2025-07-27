@@ -57,8 +57,8 @@ func (s *UserService) Register(req *RegisterRequest) (*LoginResponse, error) {
 		IsActive: true,
 	}
 
-	if err := s.db.Create(&user).Error; err != nil {
-		return nil, err
+	if dbErr := s.db.Create(&user).Error; dbErr != nil {
+		return nil, dbErr
 	}
 
 	// 生成JWT token
