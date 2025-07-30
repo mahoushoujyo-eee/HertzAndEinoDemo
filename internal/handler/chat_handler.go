@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"log"
 
 	"ai-chat-backend/internal/config"
 	"ai-chat-backend/internal/service"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	sseImpl "ai-chat-backend/internal/utils"
 	"github.com/go-playground/validator/v10"
+	"github.com/hertz-contrib/sse"
 )
 
 type ChatHandler struct {
@@ -295,6 +298,9 @@ func (h *ChatHandler) StreamChat(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
+	sseSender := sseImpl.NewSSESender(sse.NewStream(c))
+
+
 	userID := claims.UserID
 
 	conversationID, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -310,34 +316,39 @@ func (h *ChatHandler) StreamChat(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// 设置SSE头
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("X-Accel-Buffering", "no")  // 禁用nginx缓冲
 
 	// 发送开始事件
-	c.Write([]byte("data: {\"type\": \"start\"}\n\n"))
-	c.Flush()
+	err = sseSender.Send(ctx, &sse.Event{
+		Data: []byte("{\"type\": \"start\"}"),
+	})
+	if err != nil {
+		log.Printf("Error sending start event: %v", err)
+		return
+	}
 
 	// 流式处理
 	userMessage, err := h.chatService.StreamChat(ctx, userID, uint(conversationID), content, func(chunk string) error {
 		// 正确转义JSON字符串
 		chunkBytes, _ := json.Marshal(chunk)
-		data := fmt.Sprintf("data: {\"type\": \"chunk\", \"content\": %s}\n\n", string(chunkBytes))
-		c.Write([]byte(data))
-		c.Flush()
-		return nil
+		data := fmt.Sprintf("{\"type\": \"chunk\", \"content\": %s}", string(chunkBytes))
+		log.Printf("Sending chunk: %s", data)
+		return sseSender.Send(ctx, &sse.Event{
+			Data: []byte(data),
+		})
 	})
 
 	if err != nil {
-		errorData := fmt.Sprintf("data: {\"type\": \"error\", \"message\": \"%s\"}\n\n", err.Error())
-		c.Write([]byte(errorData))
-		c.Flush()
+		log.Printf("Error: %s", err.Error())
+		sseSender.Send(ctx, &sse.Event{
+			Data: []byte(fmt.Sprintf("{\"type\": \"error\", \"message\": \"%s\"}", err.Error())),
+		})
 		return
 	}
 
+	log.Printf("StreamChat completed, user_message_id: %d", userMessage.ID)
 	// 发送结束事件
-	endData := fmt.Sprintf("data: {\"type\": \"end\", \"user_message_id\": %d}\n\n", userMessage.ID)
-	c.Write([]byte(endData))
-	c.Flush()
+	sseSender.Send(ctx, &sse.Event{
+		Data: []byte(fmt.Sprintf("{\"type\": \"end\", \"user_message_id\": %d}", userMessage.ID)),
+	})
 }
