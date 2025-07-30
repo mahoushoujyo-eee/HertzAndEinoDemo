@@ -332,7 +332,7 @@ func (h *ChatHandler) StreamChat(ctx context.Context, c *app.RequestContext) {
 		// 正确转义JSON字符串
 		chunkBytes, _ := json.Marshal(chunk)
 		data := fmt.Sprintf("{\"type\": \"chunk\", \"content\": %s}", string(chunkBytes))
-		log.Printf("Sending chunk: %s", data)
+		// log.Printf("Sending chunk: %s", data)
 		return sseSender.Send(ctx, &sse.Event{
 			Data: []byte(data),
 		})

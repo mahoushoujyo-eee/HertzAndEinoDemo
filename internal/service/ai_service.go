@@ -78,8 +78,7 @@ func (s *AIService) StreamResponse(ctx context.Context, messages []*schema.Messa
 			}
 
 			if chunk != nil && chunk.Content != "" {
-				log.Printf("Received chunk: %q", chunk.Content)
-				select {
+			select {
 				case respChan <- chunk.Content:
 					// 成功发送
 				case <-ctx.Done():
